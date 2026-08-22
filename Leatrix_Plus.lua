@@ -9878,6 +9878,7 @@ function LeaPlusLC:Player()
 
         LeaPlusLC:MakeTx(ReleasePanel, "Settings", 16, -72)
         LeaPlusLC:MakeCB(ReleasePanel, "AutoReleaseNoAlterac", "Exclude Alterac Valley", 16, -92, false, "If checked, you will not release automatically in Alterac Valley.")
+        LeaPlusLC:MakeCB(ReleasePanel, "AutoReleaseShiftCancel", "Cancel auto-release with Shift key", 16, -112, false, "If checked, holding down the Shift key while dying or before the timer expires will cancel the automatic release.|n|nIf unchecked, the Shift key will be ignored and you will always be released automatically.")
 
         LeaPlusLC:MakeTx(ReleasePanel, "Delay", 356, -72)
         LeaPlusLC:MakeSL(ReleasePanel, "AutoReleaseDelay", "Drag to set the number of milliseconds before you are automatically released.|n|nYou can hold down shift as the timer is ending to cancel the automatic release.", 200, 3000, 100, 356, -92, "%.0f")
@@ -9898,6 +9899,7 @@ function LeaPlusLC:Player()
 
             -- Reset checkboxes
             LeaPlusLC["AutoReleaseNoAlterac"] = "Off"
+            LeaPlusLC["AutoReleaseShiftCancel"] = "On"
             LeaPlusLC["AutoReleaseDelay"] = 200
 
             -- Refresh panel
@@ -9911,6 +9913,7 @@ function LeaPlusLC:Player()
             if IsShiftKeyDown() and IsControlKeyDown() then
                 -- Preset profile
                 LeaPlusLC["AutoReleaseNoAlterac"] = "Off"
+                LeaPlusLC["AutoReleaseShiftCancel"] = "On"
                 LeaPlusLC["AutoReleaseDelay"] = 200
             else
                 ReleasePanel:Show()
@@ -9938,7 +9941,7 @@ function LeaPlusLC:Player()
                     LibCompat.After(delay, function()
                         local dialog = StaticPopup_Visible("DEATH")
                         if dialog then
-                            if IsShiftKeyDown() then
+                            if LeaPlusLC["AutoReleaseShiftCancel"] == "On" and IsShiftKeyDown() then
                                 ActionStatus_DisplayMessage(L["Automatic Release Cancelled"], true)
                             else
                                 StaticPopup_OnClick(_G[dialog], 1)
@@ -16852,6 +16855,7 @@ local function eventHandler(self, event, arg1, arg2, ...)
             LeaPlusLC:LoadVarChk("AutoResNoCombat", "On")                -- Accept resurrection exclude combat
             LeaPlusLC:LoadVarChk("AutoReleasePvP", "Off")                -- Release in PvP
             LeaPlusLC:LoadVarChk("AutoReleaseNoAlterac", "Off")            -- Release in PvP Exclude Alterac Valley
+            LeaPlusLC:LoadVarChk("AutoReleaseShiftCancel", "On")            -- Release in PvP Shift Cancel
             LeaPlusLC:LoadVarNum("AutoReleaseDelay", 200, 200, 3000)    -- Release in PvP Delay
             LeaPlusLC:LoadVarChk("AutoSpiritRes", "Off")                -- Release in PvP
 
@@ -17304,6 +17308,7 @@ local function eventHandler(self, event, arg1, arg2, ...)
         LeaPlusDB["AutoReleasePvP"] = LeaPlusLC["AutoReleasePvP"]
         LeaPlusDB["AutoSpiritRes"] = LeaPlusLC["AutoSpiritRes"]
         LeaPlusDB["AutoReleaseNoAlterac"] = LeaPlusLC["AutoReleaseNoAlterac"]
+        LeaPlusDB["AutoReleaseShiftCancel"] = LeaPlusLC["AutoReleaseShiftCancel"]
         LeaPlusDB["AutoReleaseDelay"] = LeaPlusLC["AutoReleaseDelay"]
 
         LeaPlusDB["AutoSellJunk"] = LeaPlusLC["AutoSellJunk"]
@@ -19761,6 +19766,7 @@ function LeaPlusLC:SlashFunc(str)
             LeaPlusDB["AutoAcceptSummon"] = "On"            -- Accept summon
             LeaPlusDB["AutoAcceptRes"] = "On"                -- Accept resurrection
             LeaPlusDB["AutoReleasePvP"] = "On"                -- Release in PvP
+            LeaPlusDB["AutoReleaseShiftCancel"] = "On"        -- Release in PvP Shift Cancel
             LeaPlusDB["AutoSpiritRes"] = "On"                -- Release in PvP
             LeaPlusDB["AutoSellJunk"] = "On"                -- Sell junk automatically
             LeaPlusDB["AutoSellExcludeList"] = ""            -- Sell junk exclusions list
