@@ -5019,7 +5019,8 @@ function LeaPlusLC:Player()
                 "WestPointer",
                 -- QuestPointer
                 "poiMinimap",
-                "pfMiniMapPin"
+                "pfMiniMapPin",
+                "QuestieFrame"
             }
 
             local numColumns = 1 -- initialize the number of Columns as a global variable
@@ -5041,7 +5042,14 @@ function LeaPlusLC:Player()
                     table.insert(excludedPatterns, pattern)
                 end
 
-                local children = { Minimap:GetChildren() }
+                local children = {}
+                local f = EnumerateFrames()
+                while f do
+                    if f:GetParent() == Minimap then
+                        table.insert(children, f)
+                    end
+                    f = EnumerateFrames(f)
+                end
                 local x = 0 -- initial x position
                 local y = 0 -- initial y position
 
@@ -6056,19 +6064,13 @@ function LeaPlusLC:Player()
 
                     -- This function will capture all children attached to the minimap, and add them to our table.
                     local function GetMinimapChildren()
-                        -- First, we clear our table to ensure there are no duplicates.
                         wipe(minimapButtons)
-
-                        -- Next, we get the total number of children attached to the minimap frame.
-                        local numChildren = Minimap:GetNumChildren()
-
-                        -- Now, we loop through each child and check if it's a minimap button.
-                        for i = 1, numChildren do
-                            local child = select(i, Minimap:GetChildren())
-                            if child and child:IsObjectType("Button") and child:GetName() then
-                                -- If the child is a minimap button, we add it to our table.
-                                minimapButtons[child:GetName()] = child
+                        local f = EnumerateFrames()
+                        while f do
+                            if f:GetParent() == Minimap and f:IsObjectType("Button") and f:GetName() then
+                                minimapButtons[f:GetName()] = f
                             end
+                            f = EnumerateFrames(f)
                         end
                     end
                     -- Set hover scripts for all buttons
@@ -6189,56 +6191,51 @@ function LeaPlusLC:Player()
 
 
 
-                    -- This function is called when the mouse enters the minimap area.
-                    local function Minimap_OnEnter()
-                        -- If the mouse is over a child, we show all minimap buttons.
-                        Minimap:HookScript("OnUpdate", function(self, elapsed)
-                            local numChildren = Minimap:GetNumChildren()
-                            local mouseOverChild = false
-                            local mouseOverMinimap = Minimap:IsMouseOver() -- Check if the mouse is over the minimap
-                            for i = 1, numChildren do
-                                local child = select(i, Minimap:GetChildren())
-                                if child and child:IsObjectType("Button") then
+                    -- Dedicated proximity watcher (Single instance, zero hooks leak, no GetChildren calls)
+                    local proximityWatcher = CreateFrame("Frame")
+                    local throttle = 0
+
+                    local function ProximityOnUpdate(self, elapsed)
+                        throttle = throttle + elapsed
+                        if throttle < 0.05 then return end -- Throttled to 20 checks/sec (saves 90% CPU)
+                        throttle = 0
+
+                        local isNear = Minimap:IsMouseOver()
+
+                        if not isNear then
+                            local cx, cy = GetCursorPosition()
+                            for _, child in pairs(minimapButtons) do
+                                if child and child:IsShown() then
                                     local x, y = child:GetCenter()
                                     if x and y then
-                                        -- Check if x and y are not nil
-                                        x, y = x * child:GetEffectiveScale(), y * child:GetEffectiveScale()
-                                        local cx, cy = GetCursorPosition()
-                                        local dist = sqrt((x - cx) ^ 2 + (y - cy) ^ 2) / 3 -- Triple the distance of buttons OnEnter alpha trigger
+                                        local scale = child:GetEffectiveScale()
+                                        local bx, by = x * scale, y * scale
+                                        local dist = sqrt((bx - cx)^2 + (by - cy)^2)
 
-                                        if dist < child:GetWidth() / 2 then
-                                            mouseOverChild = true
+                                        -- Distance trigger: button radius + padding
+                                        if dist < (child:GetWidth() * scale) then
+                                            isNear = true
                                             break
                                         end
                                     end
                                 end
                             end
+                        end
 
-                            -- If the mouse is over either the minimap or a child, show the buttons
-                            if mouseOverMinimap or mouseOverChild then
-                                ShowMinimapButtons()
-                            else
-                                HideMinimapButtons()
-                            end
-                        end)
+                        if isNear then
+                            ShowMinimapButtons()
+                        else
+                            HideMinimapButtons()
+                        end
                     end
 
-
-
-                    -- This function is called when the mouse leaves the minimap area.
-                    local function Minimap_OnLeave()
-                        HideMinimapButtons()
-                    end
+                    proximityWatcher:SetScript("OnUpdate", ProximityOnUpdate)
 
                     -- Finally, we create a timer that will capture new minimap children every 0.5 seconds.
                     LibCompat.NewTicker(1, function()
                         GetMinimapChildren()
                         SetupButtonHoverScripts() -- Apply hover scripts to each button
                     end)
-
-                    -- We set up the minimap to respond to mouse events.
-                    Minimap:SetScript("OnEnter", Minimap_OnEnter)
-                    Minimap:SetScript("OnLeave", Minimap_OnLeave)
 
                     local ticks = 0 -- keep track of how many times the function has been called
                     local ticker = nil -- keep track of the timer object
