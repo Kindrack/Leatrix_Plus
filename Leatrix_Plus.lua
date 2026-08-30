@@ -10172,7 +10172,7 @@ function LeaPlusLC:Player()
             LeaPlusCB["TrainAllButton"]:SetScript("OnEnter", function(self)
                 local count, cost = 0, 0
                 for i = 1, GetNumTrainerServices() do
-                    local void, void, isAvail = GetTrainerServiceInfo(i)
+                    local _, _, isAvail = GetTrainerServiceInfo(i)
                     if isAvail and isAvail == "available" then
                         count = count + 1
                         cost = cost + GetTrainerServiceCost(i)
@@ -10190,22 +10190,79 @@ function LeaPlusLC:Player()
                 end
             end)
 
-            -- Button click handler
-            LeaPlusCB["TrainAllButton"]:SetScript("OnClick", function(self)
-                for i = 1, GetNumTrainerServices() do
-                    local void, void, isAvail = GetTrainerServiceInfo(i)
-                    if isAvail and isAvail == "available" then
-                        BuyTrainerService(i)
+            -- Automatic chain: learn all skill ranks (1-80) in one click
+            local isTraining = false
+            local trainWatcher = CreateFrame("Frame")
+
+            local function StopTraining()
+                trainWatcher:SetScript("OnUpdate", nil)
+                trainWatcher:UnregisterAllEvents()
+                isTraining = false
+
+                -- Refresh button state and tooltip after chain ends
+                if ClassTrainerFrame_Update then
+                    ClassTrainerFrame_Update()
+                end
+            end
+
+            local function TrainBatch()
+                local count = 0
+                local money = GetMoney()
+
+                for i = GetNumTrainerServices(), 1, -1 do
+                    local _, _, isAvail = GetTrainerServiceInfo(i)
+                    if isAvail == "available" then
+                        local cost = GetTrainerServiceCost(i)
+                        if money >= cost then
+                            money = money - cost
+                            count = count + 1
+                            BuyTrainerService(i)
+                        else
+                            StopTraining()
+                            return
+                        end
                     end
+                end
+
+                if count > 0 then
+                    -- 1.5s timeout safety in case of server lag
+                    trainWatcher.timeout = 1.5
+                    trainWatcher:SetScript("OnUpdate", function(self, elapsed)
+                        self.timeout = self.timeout - elapsed
+                        if self.timeout <= 0 then
+                            StopTraining()
+                        end
+                    end)
+                else
+                    StopTraining()
+                end
+            end
+
+            trainWatcher:SetScript("OnEvent", function(self, event)
+                if event == "TRAINER_UPDATE" then
+                    TrainBatch()
+                elseif event == "TRAINER_CLOSED" then
+                    StopTraining()
                 end
             end)
 
-            -- Enable button only when skills are available
+            -- Button click handler
+            LeaPlusCB["TrainAllButton"]:SetScript("OnClick", function(self)
+                if isTraining then return end
+                isTraining = true
+                self:Disable()
+                trainWatcher:RegisterEvent("TRAINER_UPDATE")
+                trainWatcher:RegisterEvent("TRAINER_CLOSED")
+                TrainBatch()
+            end)
+
+            -- Enable button only when skills are available (skip while training chain is active)
             local skillsAvailable
             hooksecurefunc("ClassTrainerFrame_Update", function()
+                if isTraining then return end
                 skillsAvailable = false
                 for i = 1, GetNumTrainerServices() do
-                    local void, void, isAvail = GetTrainerServiceInfo(i)
+                    local _, _, isAvail = GetTrainerServiceInfo(i)
                     if isAvail and isAvail == "available" then
                         skillsAvailable = true
                     end
