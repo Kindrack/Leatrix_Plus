@@ -9999,7 +9999,7 @@ function LeaPlusLC:Player()
 
         -- Exact visible buttons fitting in 336 + 73 = 409px height without overflow
         local tall = 73
-        local MAX_TRAINER_SKILLS = 27
+        local MAX_TRAINER_SKILLS = 26
 
         ----------------------------------------------------------------------
         --	Trainers Frame
@@ -10254,10 +10254,6 @@ function LeaPlusLC:Player()
                     RecipeInset:Hide()
                     DetailsInset:Hide()
                     _G["ClassTrainerFrame"]:SetHeight(512 + tall)
-                    _G["ClassTrainerTrainButton"]:ClearAllPoints()
-                    _G["ClassTrainerTrainButton"]:SetPoint("BOTTOMRIGHT", _G["ClassTrainerFrame"], "BOTTOMRIGHT", -42, 78)
-                    LeaPlusCB["TrainAllButton"]:ClearAllPoints()
-                    LeaPlusCB["TrainAllButton"]:SetPoint("BOTTOMLEFT", _G["ClassTrainerFrame"], "BOTTOMLEFT", 344, 78)
 
                     if S and S.HandleButton then
                         S:HandleButton(_G.LeaPlusGlobalTrainAllButton)
@@ -10278,6 +10274,36 @@ function LeaPlusLC:Player()
                             end
                         end
                     end
+
+                    -- Unified bottom button layout for ElvUI (Y = 78)
+                    local function LayoutBottomButtons()
+                        -- Unlock Close if ElvUI or another addon hid it
+                        _G["ClassTrainerCancelButton"].Show = nil
+                        _G["ClassTrainerCancelButton"]:Show()
+
+                        -- Close button: bottom-right
+                        _G["ClassTrainerCancelButton"]:ClearAllPoints()
+                        _G["ClassTrainerCancelButton"]:SetPoint("BOTTOMRIGHT", _G["ClassTrainerFrame"], "BOTTOMRIGHT", -42, 78)
+
+                        -- Train button: left of Close
+                        _G["ClassTrainerTrainButton"]:ClearAllPoints()
+                        _G["ClassTrainerTrainButton"]:SetPoint("RIGHT", _G["ClassTrainerCancelButton"], "LEFT", -3, 0)
+
+                        -- Train All button: bottom-left
+                        LeaPlusCB["TrainAllButton"]:ClearAllPoints()
+                        LeaPlusCB["TrainAllButton"]:SetPoint("BOTTOMLEFT", _G["ClassTrainerFrame"], "BOTTOMLEFT", 344, 78)
+
+                        -- Suppress duplicate Train All button from ElvUI_Enhanced
+                        if _G.ElvUI_TrainAllButton then
+                            _G.ElvUI_TrainAllButton:Hide()
+                            _G.ElvUI_TrainAllButton.Show = function() end
+                        end
+                    end
+
+                    LayoutBottomButtons()
+                    ClassTrainerFrame:HookScript("OnShow", LayoutBottomButtons)
+                    hooksecurefunc("ClassTrainer_SetToClassTrainer", LayoutBottomButtons)
+                    hooksecurefunc("ClassTrainer_SetToTradeSkillTrainer", LayoutBottomButtons)
                 end
             end
 
