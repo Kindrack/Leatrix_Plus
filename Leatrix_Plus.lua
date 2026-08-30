@@ -9986,7 +9986,7 @@ function LeaPlusLC:Player()
 
         end)
 
-        -- Show configuration panal when options panel button is clicked
+        -- Show configuration panel when options panel button is clicked
         LeaPlusCB["EnhanceTrainersBtn"]:SetScript("OnClick", function()
             if IsShiftKeyDown() and IsControlKeyDown() then
                 -- Preset profile
@@ -9997,14 +9997,19 @@ function LeaPlusLC:Player()
             end
         end)
 
-        -- Set increased height of skill trainer frame and maximum number of skills listed
-        local tall, numTallTrainers = 73, 17
+        -- Exact visible buttons fitting in 336 + 73 = 409px height without overflow
+        local tall = 73
+        local MAX_TRAINER_SKILLS = 27
 
         ----------------------------------------------------------------------
         --	Trainers Frame
         ----------------------------------------------------------------------
 
         local function TrainerFunc(frame)
+
+            -- Unlock SetHeight if ElvUI locked it
+            ClassTrainerListScrollFrame.SetHeight = nil
+            ClassTrainerDetailScrollFrame.SetHeight = nil
 
             -- Make the frame double-wide
             UIPanelWindows["ClassTrainerFrame"] = { area = "override", pushable = 0, xoffset = 0, yoffset = 12, bottomClampOverride = 140 + 12, width = 714, height = 487, whileDead = 1 }
@@ -10023,58 +10028,59 @@ function LeaPlusLC:Player()
 
             -- Create additional list rows
             do
-
-                local oldSkillsDisplayed = CLASS_TRAINER_SKILLS_DISPLAYED
+                local oldSkillsDisplayed = CLASS_TRAINER_SKILLS_DISPLAYED or 11
 
                 -- Position existing buttons
-                for i = 1 + 1, CLASS_TRAINER_SKILLS_DISPLAYED do
-                    _G["ClassTrainerSkill" .. i]:ClearAllPoints()
-                    _G["ClassTrainerSkill" .. i]:SetPoint("TOPLEFT", _G["ClassTrainerSkill" .. (i - 1)], "BOTTOMLEFT", 0, 1)
+                for i = 2, oldSkillsDisplayed do
+                    local btn = _G["ClassTrainerSkill" .. i]
+                    if btn then
+                        btn:ClearAllPoints()
+                        btn:SetPoint("TOPLEFT", _G["ClassTrainerSkill" .. (i - 1)], "BOTTOMLEFT", 0, 1)
+                    end
                 end
 
-                -- Create and position new buttons
-                _G.CLASS_TRAINER_SKILLS_DISPLAYED = _G.CLASS_TRAINER_SKILLS_DISPLAYED + numTallTrainers
-                for i = oldSkillsDisplayed + 1, CLASS_TRAINER_SKILLS_DISPLAYED do
-                    local button = CreateFrame("Button", "ClassTrainerSkill" .. i, ClassTrainerFrame, "ClassTrainerSkillButtonTemplate")
-                    button:SetID(i)
-                    button:Hide()
+                -- Create and position new buttons up to MAX_TRAINER_SKILLS
+                for i = oldSkillsDisplayed + 1, MAX_TRAINER_SKILLS do
+                    local button = _G["ClassTrainerSkill" .. i]
+                    if not button then
+                        button = CreateFrame("Button", "ClassTrainerSkill" .. i, ClassTrainerFrame, "ClassTrainerSkillButtonTemplate")
+                        button:SetID(i)
+                        button:Hide()
+                    end
                     button:ClearAllPoints()
                     button:SetPoint("TOPLEFT", _G["ClassTrainerSkill" .. (i - 1)], "BOTTOMLEFT", 0, 1)
                 end
 
-                hooksecurefunc("ClassTrainer_SetToTradeSkillTrainer", function()
-                    _G.CLASS_TRAINER_SKILLS_DISPLAYED = _G.CLASS_TRAINER_SKILLS_DISPLAYED + numTallTrainers
+                -- Keep constant skills count for both Class and TradeSkill trainers
+                _G.CLASS_TRAINER_SKILLS_DISPLAYED = MAX_TRAINER_SKILLS
+
+                local function UpdateTrainerSkillsCount()
+                    _G.CLASS_TRAINER_SKILLS_DISPLAYED = MAX_TRAINER_SKILLS
                     ClassTrainerListScrollFrame:SetHeight(336 + tall)
                     ClassTrainerDetailScrollFrame:SetHeight(336 + tall)
-                end)
+                end
 
-                hooksecurefunc("ClassTrainer_SetToClassTrainer", function()
-                    _G.CLASS_TRAINER_SKILLS_DISPLAYED = _G.CLASS_TRAINER_SKILLS_DISPLAYED + numTallTrainers - 1
-                    ClassTrainerListScrollFrame:SetHeight(336 + tall)
-                    ClassTrainerDetailScrollFrame:SetHeight(336 + tall)
-                end)
+                hooksecurefunc("ClassTrainer_SetToTradeSkillTrainer", UpdateTrainerSkillsCount)
+                hooksecurefunc("ClassTrainer_SetToClassTrainer", UpdateTrainerSkillsCount)
 
-                --===== 3.3.5 - Hooking blizzard func to not change the Skills width if no scrollbar (was overlapping before) =====--
-
+                -- Hook ClassTrainerFrame_Update to keep button widths and clean up any orphaned buttons
                 local function modified_ClassTrainerFrame_Update()
-                    -- Your modifications to the function here
-                    -- Set button width to 293 if scrollbar is hidden
-                    for i = 1, CLASS_TRAINER_SKILLS_DISPLAYED do
-                        local skillButton = _G["ClassTrainerSkill" .. i];
-                        if (skillButton) then
-                            if (not ClassTrainerListScrollFrame:IsShown()) then
-                                skillButton:SetWidth(293);
-                            else
-                                skillButton:SetWidth(293);
-                            end
+                    _G.CLASS_TRAINER_SKILLS_DISPLAYED = MAX_TRAINER_SKILLS
+                    for i = 1, MAX_TRAINER_SKILLS do
+                        local skillButton = _G["ClassTrainerSkill" .. i]
+                        if skillButton then
+                            skillButton:SetWidth(293)
                         end
+                    end
+                    -- Force hide any extra buttons that might exist in memory beyond MAX_TRAINER_SKILLS
+                    local extraIndex = MAX_TRAINER_SKILLS + 1
+                    while _G["ClassTrainerSkill" .. extraIndex] do
+                        _G["ClassTrainerSkill" .. extraIndex]:Hide()
+                        extraIndex = extraIndex + 1
                     end
                 end
 
-                -- Hook the modified function to the ClassTrainerFrame_Update event
                 hooksecurefunc("ClassTrainerFrame_Update", modified_ClassTrainerFrame_Update)
-
-
             end
 
             -- Set highlight bar width when shown
@@ -10086,7 +10092,6 @@ function LeaPlusLC:Player()
             _G["ClassTrainerDetailScrollFrame"]:ClearAllPoints()
             _G["ClassTrainerDetailScrollFrame"]:SetPoint("TOPLEFT", _G["ClassTrainerFrame"], "TOPLEFT", 352, -74)
             _G["ClassTrainerDetailScrollFrame"]:SetSize(296, 336 + tall)
-            -- _G["ClassTrainerSkillIcon"]:SetHeight(500) -- Debug
 
             -- Hide detail scroll frame textures
             _G["ClassTrainerDetailScrollFrameTop"]:SetAlpha(0)
@@ -10165,7 +10170,6 @@ function LeaPlusLC:Player()
 
             -- Button tooltip
             LeaPlusCB["TrainAllButton"]:SetScript("OnEnter", function(self)
-                -- Get number of available skills and total cost
                 local count, cost = 0, 0
                 for i = 1, GetNumTrainerServices() do
                     local void, void, isAvail = GetTrainerServiceInfo(i)
@@ -10174,7 +10178,6 @@ function LeaPlusLC:Player()
                         cost = cost + GetTrainerServiceCost(i)
                     end
                 end
-                -- Show tooltip
                 if count > 0 then
                     GameTooltip:SetOwner(self, "ANCHOR_TOP", 0, 4)
                     GameTooltip:ClearLines()
@@ -10212,7 +10215,6 @@ function LeaPlusLC:Player()
                 else
                     LeaPlusCB["TrainAllButton"]:Disable()
                 end
-                -- Refresh tooltip
                 if LeaPlusCB["TrainAllButton"]:IsMouseOver() and skillsAvailable then
                     LeaPlusCB["TrainAllButton"]:GetScript("OnEnter")(LeaPlusCB["TrainAllButton"])
                 end
@@ -10232,7 +10234,6 @@ function LeaPlusLC:Player()
             TrainerPanel.r:HookScript("OnClick", SetTrainAllFunc)
             LeaPlusCB["EnhanceTrainersBtn"]:HookScript("OnClick", function()
                 if IsShiftKeyDown() and IsControlKeyDown() then
-                    -- Preset profile
                     LeaPlusLC["ShowTrainAllBtn"] = "On"
                     SetTrainAllFunc()
                 end
@@ -10243,10 +10244,11 @@ function LeaPlusLC:Player()
             --	ElvUI fixes
             ----------------------------------------------------------------------
 
-            -- ElvUI fixes
             if LeaPlusLC.ElvUI then
                 local E = LeaPlusLC.ElvUI
                 if E.private.skins.blizzard.enable and E.private.skins.blizzard.trainer then
+                    local S = E:GetModule("Skins")
+
                     regions[2]:Hide()
                     regions[3]:Hide()
                     RecipeInset:Hide()
@@ -10256,7 +10258,26 @@ function LeaPlusLC:Player()
                     _G["ClassTrainerTrainButton"]:SetPoint("BOTTOMRIGHT", _G["ClassTrainerFrame"], "BOTTOMRIGHT", -42, 78)
                     LeaPlusCB["TrainAllButton"]:ClearAllPoints()
                     LeaPlusCB["TrainAllButton"]:SetPoint("BOTTOMLEFT", _G["ClassTrainerFrame"], "BOTTOMLEFT", 344, 78)
-                    E:GetModule("Skins"):HandleButton(_G.LeaPlusGlobalTrainAllButton)
+
+                    if S and S.HandleButton then
+                        S:HandleButton(_G.LeaPlusGlobalTrainAllButton)
+                    end
+
+                    -- Apply ElvUI collapse/expand button skinning to all buttons created by Leatrix Plus
+                    if S and S.HandleCollapseExpandButton then
+                        for i = 1, MAX_TRAINER_SKILLS do
+                            local skillButton = _G["ClassTrainerSkill" .. i]
+                            local highlight = _G["ClassTrainerSkill" .. i .. "Highlight"]
+                            if skillButton and not skillButton.__leaSkinned then
+                                skillButton.__leaSkinned = true
+                                S:HandleCollapseExpandButton(skillButton, "+", nil, nil, 1)
+                                if highlight then
+                                    highlight:SetTexture("")
+                                    highlight.SetTexture = E.noop
+                                end
+                            end
+                        end
+                    end
                 end
             end
 
