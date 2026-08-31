@@ -10168,23 +10168,95 @@ function LeaPlusLC:Player()
             -- Give button global scope (useful for compatibility with other addons and essential for ElvUI)
             _G.LeaPlusGlobalTrainAllButton = LeaPlusCB["TrainAllButton"]
 
-            -- Button tooltip
-            LeaPlusCB["TrainAllButton"]:SetScript("OnEnter", function(self)
+            -- Precise cost calculation for all actually learnable spell chains
+            local cachedCount, cachedCost = 0, 0
+            local isSilentScanning = false
+
+            local function CalculateTotalTrainerCost()
+                if isSilentScanning then return end
+
+                local unavailFilter = GetTrainerServiceTypeFilter("unavailable")
+                if not unavailFilter then
+                    isSilentScanning = true
+                    SetTrainerServiceTypeFilter("unavailable", 1)
+                end
+
                 local count, cost = 0, 0
+                local playerLevel = UnitLevel("player")
+                local isTrade = IsTradeskillTrainer and IsTradeskillTrainer()
+
+                -- Step 1: Record all spells whose base rank is learnable right now
+                local learnableSpells = {}
                 for i = 1, GetNumTrainerServices() do
-                    local _, _, isAvail = GetTrainerServiceInfo(i)
-                    if isAvail and isAvail == "available" then
-                        count = count + 1
-                        cost = cost + GetTrainerServiceCost(i)
+                    local serviceName, _, serviceType = GetTrainerServiceInfo(i)
+                    if serviceName and serviceType == "available" then
+                        learnableSpells[serviceName] = true
                     end
                 end
-                if count > 0 then
+
+                -- Step 2: Count only available spells and their follow-up ranks
+                for i = 1, GetNumTrainerServices() do
+                    local serviceName, _, serviceType = GetTrainerServiceInfo(i)
+                    if serviceName and serviceType ~= "header" and serviceType ~= "used" then
+                        local reqLevel = GetTrainerServiceLevelReq(i) or 0
+                        local meetsLevel = (reqLevel <= 1 or playerLevel >= reqLevel)
+                        local meetsSkill = true
+                        if isTrade then
+                            local _, _, hasReq = GetTrainerServiceSkillReq(i)
+                            if hasReq == false then
+                                meetsSkill = false
+                            end
+                        end
+
+                        if serviceType == "available" then
+                            count = count + 1
+                            cost = cost + (GetTrainerServiceCost(i) or 0)
+                        elseif serviceType == "unavailable" and meetsLevel and meetsSkill then
+                            -- An unavailable rank counts ONLY if its base spell is being learned this session (learnableSpells)
+                            -- or its required prerequisite (talent/rank) is already met
+                            local isPrereqMet = false
+                            if learnableSpells[serviceName] then
+                                isPrereqMet = true
+                            else
+                                local numReq = GetTrainerServiceNumAbilityReq(i)
+                                if numReq > 0 then
+                                    for r = 1, numReq do
+                                        local _, hasReq = GetTrainerServiceAbilityReq(i, r)
+                                        if hasReq then
+                                            isPrereqMet = true
+                                            break
+                                        end
+                                    end
+                                end
+                            end
+
+                            if isPrereqMet then
+                                count = count + 1
+                                cost = cost + (GetTrainerServiceCost(i) or 0)
+                            end
+                        end
+                    end
+                end
+
+                if not unavailFilter then
+                    SetTrainerServiceTypeFilter("unavailable", 0)
+                    isSilentScanning = false
+                end
+
+                cachedCount = count
+                cachedCost = cost
+            end
+
+            -- Button tooltip
+            LeaPlusCB["TrainAllButton"]:SetScript("OnEnter", function(self)
+                CalculateTotalTrainerCost()
+                if cachedCount > 0 then
                     GameTooltip:SetOwner(self, "ANCHOR_TOP", 0, 4)
                     GameTooltip:ClearLines()
-                    if count > 1 then
-                        GameTooltip:AddLine(L["Train"] .. " " .. count .. " " .. L["skills for"] .. " " .. GetCoinTextureString(cost))
+                    if cachedCount > 1 then
+                        GameTooltip:AddLine(L["Train"] .. " " .. cachedCount .. " " .. L["skills for"] .. " " .. GetCoinTextureString(cachedCost))
                     else
-                        GameTooltip:AddLine(L["Train"] .. " " .. count .. " " .. L["skill for"] .. " " .. GetCoinTextureString(cost))
+                        GameTooltip:AddLine(L["Train"] .. " " .. cachedCount .. " " .. L["skill for"] .. " " .. GetCoinTextureString(cachedCost))
                     end
                     GameTooltip:Show()
                 end
@@ -10212,7 +10284,7 @@ function LeaPlusLC:Player()
                 for i = GetNumTrainerServices(), 1, -1 do
                     local _, _, isAvail = GetTrainerServiceInfo(i)
                     if isAvail == "available" then
-                        local cost = GetTrainerServiceCost(i)
+                        local cost = GetTrainerServiceCost(i) or 0
                         if money >= cost then
                             money = money - cost
                             count = count + 1
