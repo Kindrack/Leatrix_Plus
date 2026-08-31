@@ -10247,9 +10247,8 @@ function LeaPlusLC:Player()
                 cachedCost = cost
             end
 
-            -- Button tooltip
+            -- Button tooltip (reads cached values only, no filter switching on hover)
             LeaPlusCB["TrainAllButton"]:SetScript("OnEnter", function(self)
-                CalculateTotalTrainerCost()
                 if cachedCount > 0 then
                     GameTooltip:SetOwner(self, "ANCHOR_TOP", 0, 4)
                     GameTooltip:ClearLines()
@@ -10265,10 +10264,11 @@ function LeaPlusLC:Player()
             -- Automatic chain: learn all skill ranks (1-80) in one click
             local isTraining = false
             local trainWatcher = CreateFrame("Frame")
+            trainWatcher:RegisterEvent("TRAINER_UPDATE")
+            trainWatcher:RegisterEvent("TRAINER_CLOSED")
 
             local function StopTraining()
                 trainWatcher:SetScript("OnUpdate", nil)
-                trainWatcher:UnregisterAllEvents()
                 isTraining = false
 
                 -- Refresh button state and tooltip after chain ends
@@ -10310,9 +10310,14 @@ function LeaPlusLC:Player()
                 end
             end
 
+            -- Trainer events: auto-chain OR recalculate cost on manual single-skill purchase
             trainWatcher:SetScript("OnEvent", function(self, event)
                 if event == "TRAINER_UPDATE" then
-                    TrainBatch()
+                    if isTraining then
+                        TrainBatch()
+                    else
+                        CalculateTotalTrainerCost()
+                    end
                 elseif event == "TRAINER_CLOSED" then
                     StopTraining()
                 end
@@ -10323,10 +10328,11 @@ function LeaPlusLC:Player()
                 if isTraining then return end
                 isTraining = true
                 self:Disable()
-                trainWatcher:RegisterEvent("TRAINER_UPDATE")
-                trainWatcher:RegisterEvent("TRAINER_CLOSED")
                 TrainBatch()
             end)
+
+            -- Calculate cost when trainer window opens
+            ClassTrainerFrame:HookScript("OnShow", CalculateTotalTrainerCost)
 
             -- Enable button only when skills are available (skip while training chain is active)
             local skillsAvailable
