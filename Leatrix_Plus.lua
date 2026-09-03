@@ -5019,7 +5019,8 @@ function LeaPlusLC:Player()
                 "WestPointer",
                 -- QuestPointer
                 "poiMinimap",
-                "pfMiniMapPin"
+                "pfMiniMapPin",
+                "QuestieFrame"
             }
 
             local numColumns = 1 -- initialize the number of Columns as a global variable
@@ -5041,7 +5042,14 @@ function LeaPlusLC:Player()
                     table.insert(excludedPatterns, pattern)
                 end
 
-                local children = { Minimap:GetChildren() }
+                local children = {}
+                local f = EnumerateFrames()
+                while f do
+                    if f:GetParent() == Minimap then
+                        table.insert(children, f)
+                    end
+                    f = EnumerateFrames(f)
+                end
                 local x = 0 -- initial x position
                 local y = 0 -- initial y position
 
@@ -6056,19 +6064,13 @@ function LeaPlusLC:Player()
 
                     -- This function will capture all children attached to the minimap, and add them to our table.
                     local function GetMinimapChildren()
-                        -- First, we clear our table to ensure there are no duplicates.
                         wipe(minimapButtons)
-
-                        -- Next, we get the total number of children attached to the minimap frame.
-                        local numChildren = Minimap:GetNumChildren()
-
-                        -- Now, we loop through each child and check if it's a minimap button.
-                        for i = 1, numChildren do
-                            local child = select(i, Minimap:GetChildren())
-                            if child and child:IsObjectType("Button") and child:GetName() then
-                                -- If the child is a minimap button, we add it to our table.
-                                minimapButtons[child:GetName()] = child
+                        local f = EnumerateFrames()
+                        while f do
+                            if f:GetParent() == Minimap and f:IsObjectType("Button") and f:GetName() then
+                                minimapButtons[f:GetName()] = f
                             end
+                            f = EnumerateFrames(f)
                         end
                     end
                     -- Set hover scripts for all buttons
@@ -6189,56 +6191,51 @@ function LeaPlusLC:Player()
 
 
 
-                    -- This function is called when the mouse enters the minimap area.
-                    local function Minimap_OnEnter()
-                        -- If the mouse is over a child, we show all minimap buttons.
-                        Minimap:HookScript("OnUpdate", function(self, elapsed)
-                            local numChildren = Minimap:GetNumChildren()
-                            local mouseOverChild = false
-                            local mouseOverMinimap = Minimap:IsMouseOver() -- Check if the mouse is over the minimap
-                            for i = 1, numChildren do
-                                local child = select(i, Minimap:GetChildren())
-                                if child and child:IsObjectType("Button") then
+                    -- Dedicated proximity watcher (Single instance, zero hooks leak, no GetChildren calls)
+                    local proximityWatcher = CreateFrame("Frame")
+                    local throttle = 0
+
+                    local function ProximityOnUpdate(self, elapsed)
+                        throttle = throttle + elapsed
+                        if throttle < 0.05 then return end -- Throttled to 20 checks/sec (saves 90% CPU)
+                        throttle = 0
+
+                        local isNear = Minimap:IsMouseOver()
+
+                        if not isNear then
+                            local cx, cy = GetCursorPosition()
+                            for _, child in pairs(minimapButtons) do
+                                if child and child:IsShown() then
                                     local x, y = child:GetCenter()
                                     if x and y then
-                                        -- Check if x and y are not nil
-                                        x, y = x * child:GetEffectiveScale(), y * child:GetEffectiveScale()
-                                        local cx, cy = GetCursorPosition()
-                                        local dist = sqrt((x - cx) ^ 2 + (y - cy) ^ 2) / 3 -- Triple the distance of buttons OnEnter alpha trigger
+                                        local scale = child:GetEffectiveScale()
+                                        local bx, by = x * scale, y * scale
+                                        local dist = sqrt((bx - cx)^2 + (by - cy)^2)
 
-                                        if dist < child:GetWidth() / 2 then
-                                            mouseOverChild = true
+                                        -- Distance trigger: button radius + padding
+                                        if dist < (child:GetWidth() * scale) then
+                                            isNear = true
                                             break
                                         end
                                     end
                                 end
                             end
+                        end
 
-                            -- If the mouse is over either the minimap or a child, show the buttons
-                            if mouseOverMinimap or mouseOverChild then
-                                ShowMinimapButtons()
-                            else
-                                HideMinimapButtons()
-                            end
-                        end)
+                        if isNear then
+                            ShowMinimapButtons()
+                        else
+                            HideMinimapButtons()
+                        end
                     end
 
-
-
-                    -- This function is called when the mouse leaves the minimap area.
-                    local function Minimap_OnLeave()
-                        HideMinimapButtons()
-                    end
+                    proximityWatcher:SetScript("OnUpdate", ProximityOnUpdate)
 
                     -- Finally, we create a timer that will capture new minimap children every 0.5 seconds.
                     LibCompat.NewTicker(1, function()
                         GetMinimapChildren()
                         SetupButtonHoverScripts() -- Apply hover scripts to each button
                     end)
-
-                    -- We set up the minimap to respond to mouse events.
-                    Minimap:SetScript("OnEnter", Minimap_OnEnter)
-                    Minimap:SetScript("OnLeave", Minimap_OnLeave)
 
                     local ticks = 0 -- keep track of how many times the function has been called
                     local ticker = nil -- keep track of the timer object
@@ -9989,7 +9986,7 @@ function LeaPlusLC:Player()
 
         end)
 
-        -- Show configuration panal when options panel button is clicked
+        -- Show configuration panel when options panel button is clicked
         LeaPlusCB["EnhanceTrainersBtn"]:SetScript("OnClick", function()
             if IsShiftKeyDown() and IsControlKeyDown() then
                 -- Preset profile
@@ -10000,14 +9997,19 @@ function LeaPlusLC:Player()
             end
         end)
 
-        -- Set increased height of skill trainer frame and maximum number of skills listed
-        local tall, numTallTrainers = 73, 17
+        -- Exact visible buttons fitting in 336 + 73 = 409px height without overflow
+        local tall = 73
+        local MAX_TRAINER_SKILLS = 26
 
         ----------------------------------------------------------------------
         --	Trainers Frame
         ----------------------------------------------------------------------
 
         local function TrainerFunc(frame)
+
+            -- Unlock SetHeight if ElvUI locked it
+            ClassTrainerListScrollFrame.SetHeight = nil
+            ClassTrainerDetailScrollFrame.SetHeight = nil
 
             -- Make the frame double-wide
             UIPanelWindows["ClassTrainerFrame"] = { area = "override", pushable = 0, xoffset = 0, yoffset = 12, bottomClampOverride = 140 + 12, width = 714, height = 487, whileDead = 1 }
@@ -10026,58 +10028,59 @@ function LeaPlusLC:Player()
 
             -- Create additional list rows
             do
-
-                local oldSkillsDisplayed = CLASS_TRAINER_SKILLS_DISPLAYED
+                local oldSkillsDisplayed = CLASS_TRAINER_SKILLS_DISPLAYED or 11
 
                 -- Position existing buttons
-                for i = 1 + 1, CLASS_TRAINER_SKILLS_DISPLAYED do
-                    _G["ClassTrainerSkill" .. i]:ClearAllPoints()
-                    _G["ClassTrainerSkill" .. i]:SetPoint("TOPLEFT", _G["ClassTrainerSkill" .. (i - 1)], "BOTTOMLEFT", 0, 1)
+                for i = 2, oldSkillsDisplayed do
+                    local btn = _G["ClassTrainerSkill" .. i]
+                    if btn then
+                        btn:ClearAllPoints()
+                        btn:SetPoint("TOPLEFT", _G["ClassTrainerSkill" .. (i - 1)], "BOTTOMLEFT", 0, 1)
+                    end
                 end
 
-                -- Create and position new buttons
-                _G.CLASS_TRAINER_SKILLS_DISPLAYED = _G.CLASS_TRAINER_SKILLS_DISPLAYED + numTallTrainers
-                for i = oldSkillsDisplayed + 1, CLASS_TRAINER_SKILLS_DISPLAYED do
-                    local button = CreateFrame("Button", "ClassTrainerSkill" .. i, ClassTrainerFrame, "ClassTrainerSkillButtonTemplate")
-                    button:SetID(i)
-                    button:Hide()
+                -- Create and position new buttons up to MAX_TRAINER_SKILLS
+                for i = oldSkillsDisplayed + 1, MAX_TRAINER_SKILLS do
+                    local button = _G["ClassTrainerSkill" .. i]
+                    if not button then
+                        button = CreateFrame("Button", "ClassTrainerSkill" .. i, ClassTrainerFrame, "ClassTrainerSkillButtonTemplate")
+                        button:SetID(i)
+                        button:Hide()
+                    end
                     button:ClearAllPoints()
                     button:SetPoint("TOPLEFT", _G["ClassTrainerSkill" .. (i - 1)], "BOTTOMLEFT", 0, 1)
                 end
 
-                hooksecurefunc("ClassTrainer_SetToTradeSkillTrainer", function()
-                    _G.CLASS_TRAINER_SKILLS_DISPLAYED = _G.CLASS_TRAINER_SKILLS_DISPLAYED + numTallTrainers
+                -- Keep constant skills count for both Class and TradeSkill trainers
+                _G.CLASS_TRAINER_SKILLS_DISPLAYED = MAX_TRAINER_SKILLS
+
+                local function UpdateTrainerSkillsCount()
+                    _G.CLASS_TRAINER_SKILLS_DISPLAYED = MAX_TRAINER_SKILLS
                     ClassTrainerListScrollFrame:SetHeight(336 + tall)
                     ClassTrainerDetailScrollFrame:SetHeight(336 + tall)
-                end)
+                end
 
-                hooksecurefunc("ClassTrainer_SetToClassTrainer", function()
-                    _G.CLASS_TRAINER_SKILLS_DISPLAYED = _G.CLASS_TRAINER_SKILLS_DISPLAYED + numTallTrainers - 1
-                    ClassTrainerListScrollFrame:SetHeight(336 + tall)
-                    ClassTrainerDetailScrollFrame:SetHeight(336 + tall)
-                end)
+                hooksecurefunc("ClassTrainer_SetToTradeSkillTrainer", UpdateTrainerSkillsCount)
+                hooksecurefunc("ClassTrainer_SetToClassTrainer", UpdateTrainerSkillsCount)
 
-                --===== 3.3.5 - Hooking blizzard func to not change the Skills width if no scrollbar (was overlapping before) =====--
-
+                -- Hook ClassTrainerFrame_Update to keep button widths and clean up any orphaned buttons
                 local function modified_ClassTrainerFrame_Update()
-                    -- Your modifications to the function here
-                    -- Set button width to 293 if scrollbar is hidden
-                    for i = 1, CLASS_TRAINER_SKILLS_DISPLAYED do
-                        local skillButton = _G["ClassTrainerSkill" .. i];
-                        if (skillButton) then
-                            if (not ClassTrainerListScrollFrame:IsShown()) then
-                                skillButton:SetWidth(293);
-                            else
-                                skillButton:SetWidth(293);
-                            end
+                    _G.CLASS_TRAINER_SKILLS_DISPLAYED = MAX_TRAINER_SKILLS
+                    for i = 1, MAX_TRAINER_SKILLS do
+                        local skillButton = _G["ClassTrainerSkill" .. i]
+                        if skillButton then
+                            skillButton:SetWidth(293)
                         end
+                    end
+                    -- Force hide any extra buttons that might exist in memory beyond MAX_TRAINER_SKILLS
+                    local extraIndex = MAX_TRAINER_SKILLS + 1
+                    while _G["ClassTrainerSkill" .. extraIndex] do
+                        _G["ClassTrainerSkill" .. extraIndex]:Hide()
+                        extraIndex = extraIndex + 1
                     end
                 end
 
-                -- Hook the modified function to the ClassTrainerFrame_Update event
                 hooksecurefunc("ClassTrainerFrame_Update", modified_ClassTrainerFrame_Update)
-
-
             end
 
             -- Set highlight bar width when shown
@@ -10089,7 +10092,6 @@ function LeaPlusLC:Player()
             _G["ClassTrainerDetailScrollFrame"]:ClearAllPoints()
             _G["ClassTrainerDetailScrollFrame"]:SetPoint("TOPLEFT", _G["ClassTrainerFrame"], "TOPLEFT", 352, -74)
             _G["ClassTrainerDetailScrollFrame"]:SetSize(296, 336 + tall)
-            -- _G["ClassTrainerSkillIcon"]:SetHeight(500) -- Debug
 
             -- Hide detail scroll frame textures
             _G["ClassTrainerDetailScrollFrameTop"]:SetAlpha(0)
@@ -10166,46 +10168,179 @@ function LeaPlusLC:Player()
             -- Give button global scope (useful for compatibility with other addons and essential for ElvUI)
             _G.LeaPlusGlobalTrainAllButton = LeaPlusCB["TrainAllButton"]
 
-            -- Button tooltip
-            LeaPlusCB["TrainAllButton"]:SetScript("OnEnter", function(self)
-                -- Get number of available skills and total cost
+            -- Precise cost calculation for all actually learnable spell chains
+            local cachedCount, cachedCost = 0, 0
+            local isSilentScanning = false
+
+            local function CalculateTotalTrainerCost()
+                if isSilentScanning then return end
+
+                local unavailFilter = GetTrainerServiceTypeFilter("unavailable")
+                if not unavailFilter then
+                    isSilentScanning = true
+                    SetTrainerServiceTypeFilter("unavailable", 1)
+                end
+
                 local count, cost = 0, 0
+                local playerLevel = UnitLevel("player")
+                local isTrade = IsTradeskillTrainer and IsTradeskillTrainer()
+
+                -- Step 1: Record all spells whose base rank is learnable right now
+                local learnableSpells = {}
                 for i = 1, GetNumTrainerServices() do
-                    local void, void, isAvail = GetTrainerServiceInfo(i)
-                    if isAvail and isAvail == "available" then
-                        count = count + 1
-                        cost = cost + GetTrainerServiceCost(i)
+                    local serviceName, _, serviceType = GetTrainerServiceInfo(i)
+                    if serviceName and serviceType == "available" then
+                        learnableSpells[serviceName] = true
                     end
                 end
-                -- Show tooltip
-                if count > 0 then
+
+                -- Step 2: Count only available spells and their follow-up ranks
+                for i = 1, GetNumTrainerServices() do
+                    local serviceName, _, serviceType = GetTrainerServiceInfo(i)
+                    if serviceName and serviceType ~= "header" and serviceType ~= "used" then
+                        local reqLevel = GetTrainerServiceLevelReq(i) or 0
+                        local meetsLevel = (reqLevel <= 1 or playerLevel >= reqLevel)
+                        local meetsSkill = true
+                        if isTrade then
+                            local _, _, hasReq = GetTrainerServiceSkillReq(i)
+                            if hasReq == false then
+                                meetsSkill = false
+                            end
+                        end
+
+                        if serviceType == "available" then
+                            count = count + 1
+                            cost = cost + (GetTrainerServiceCost(i) or 0)
+                        elseif serviceType == "unavailable" and meetsLevel and meetsSkill then
+                            -- An unavailable rank counts ONLY if its base spell is being learned this session (learnableSpells)
+                            -- or its required prerequisite (talent/rank) is already met
+                            local isPrereqMet = false
+                            if learnableSpells[serviceName] then
+                                isPrereqMet = true
+                            else
+                                local numReq = GetTrainerServiceNumAbilityReq(i)
+                                if numReq > 0 then
+                                    for r = 1, numReq do
+                                        local _, hasReq = GetTrainerServiceAbilityReq(i, r)
+                                        if hasReq then
+                                            isPrereqMet = true
+                                            break
+                                        end
+                                    end
+                                end
+                            end
+
+                            if isPrereqMet then
+                                count = count + 1
+                                cost = cost + (GetTrainerServiceCost(i) or 0)
+                            end
+                        end
+                    end
+                end
+
+                if not unavailFilter then
+                    SetTrainerServiceTypeFilter("unavailable", 0)
+                    isSilentScanning = false
+                end
+
+                cachedCount = count
+                cachedCost = cost
+            end
+
+            -- Button tooltip (reads cached values only, no filter switching on hover)
+            LeaPlusCB["TrainAllButton"]:SetScript("OnEnter", function(self)
+                if cachedCount > 0 then
                     GameTooltip:SetOwner(self, "ANCHOR_TOP", 0, 4)
                     GameTooltip:ClearLines()
-                    if count > 1 then
-                        GameTooltip:AddLine(L["Train"] .. " " .. count .. " " .. L["skills for"] .. " " .. GetCoinTextureString(cost))
+                    if cachedCount > 1 then
+                        GameTooltip:AddLine(L["Train"] .. " " .. cachedCount .. " " .. L["skills for"] .. " " .. GetCoinTextureString(cachedCost))
                     else
-                        GameTooltip:AddLine(L["Train"] .. " " .. count .. " " .. L["skill for"] .. " " .. GetCoinTextureString(cost))
+                        GameTooltip:AddLine(L["Train"] .. " " .. cachedCount .. " " .. L["skill for"] .. " " .. GetCoinTextureString(cachedCost))
                     end
                     GameTooltip:Show()
                 end
             end)
 
-            -- Button click handler
-            LeaPlusCB["TrainAllButton"]:SetScript("OnClick", function(self)
-                for i = 1, GetNumTrainerServices() do
-                    local void, void, isAvail = GetTrainerServiceInfo(i)
-                    if isAvail and isAvail == "available" then
-                        BuyTrainerService(i)
+            -- Automatic chain: learn all skill ranks (1-80) in one click
+            local isTraining = false
+            local trainWatcher = CreateFrame("Frame")
+            trainWatcher:RegisterEvent("TRAINER_UPDATE")
+            trainWatcher:RegisterEvent("TRAINER_CLOSED")
+
+            local function StopTraining()
+                trainWatcher:SetScript("OnUpdate", nil)
+                isTraining = false
+
+                -- Refresh button state and tooltip after chain ends
+                if ClassTrainerFrame_Update then
+                    ClassTrainerFrame_Update()
+                end
+            end
+
+            local function TrainBatch()
+                local count = 0
+                local money = GetMoney()
+
+                for i = GetNumTrainerServices(), 1, -1 do
+                    local _, _, isAvail = GetTrainerServiceInfo(i)
+                    if isAvail == "available" then
+                        local cost = GetTrainerServiceCost(i) or 0
+                        if money >= cost then
+                            money = money - cost
+                            count = count + 1
+                            BuyTrainerService(i)
+                        else
+                            StopTraining()
+                            return
+                        end
                     end
+                end
+
+                if count > 0 then
+                    -- 1.5s timeout safety in case of server lag
+                    trainWatcher.timeout = 1.5
+                    trainWatcher:SetScript("OnUpdate", function(self, elapsed)
+                        self.timeout = self.timeout - elapsed
+                        if self.timeout <= 0 then
+                            StopTraining()
+                        end
+                    end)
+                else
+                    StopTraining()
+                end
+            end
+
+            -- Trainer events: auto-chain OR recalculate cost on manual single-skill purchase
+            trainWatcher:SetScript("OnEvent", function(self, event)
+                if event == "TRAINER_UPDATE" then
+                    if isTraining then
+                        TrainBatch()
+                    else
+                        CalculateTotalTrainerCost()
+                    end
+                elseif event == "TRAINER_CLOSED" then
+                    StopTraining()
                 end
             end)
 
-            -- Enable button only when skills are available
+            -- Button click handler
+            LeaPlusCB["TrainAllButton"]:SetScript("OnClick", function(self)
+                if isTraining then return end
+                isTraining = true
+                self:Disable()
+                TrainBatch()
+            end)
+
+            -- Calculate cost when trainer window opens
+            ClassTrainerFrame:HookScript("OnShow", CalculateTotalTrainerCost)
+
+            -- Enable button only when skills are available (skip while training chain is active)
             local skillsAvailable
             hooksecurefunc("ClassTrainerFrame_Update", function()
+                if isTraining then return end
                 skillsAvailable = false
                 for i = 1, GetNumTrainerServices() do
-                    local void, void, isAvail = GetTrainerServiceInfo(i)
+                    local _, _, isAvail = GetTrainerServiceInfo(i)
                     if isAvail and isAvail == "available" then
                         skillsAvailable = true
                     end
@@ -10215,7 +10350,6 @@ function LeaPlusLC:Player()
                 else
                     LeaPlusCB["TrainAllButton"]:Disable()
                 end
-                -- Refresh tooltip
                 if LeaPlusCB["TrainAllButton"]:IsMouseOver() and skillsAvailable then
                     LeaPlusCB["TrainAllButton"]:GetScript("OnEnter")(LeaPlusCB["TrainAllButton"])
                 end
@@ -10235,7 +10369,6 @@ function LeaPlusLC:Player()
             TrainerPanel.r:HookScript("OnClick", SetTrainAllFunc)
             LeaPlusCB["EnhanceTrainersBtn"]:HookScript("OnClick", function()
                 if IsShiftKeyDown() and IsControlKeyDown() then
-                    -- Preset profile
                     LeaPlusLC["ShowTrainAllBtn"] = "On"
                     SetTrainAllFunc()
                 end
@@ -10246,20 +10379,66 @@ function LeaPlusLC:Player()
             --	ElvUI fixes
             ----------------------------------------------------------------------
 
-            -- ElvUI fixes
             if LeaPlusLC.ElvUI then
                 local E = LeaPlusLC.ElvUI
                 if E.private.skins.blizzard.enable and E.private.skins.blizzard.trainer then
+                    local S = E:GetModule("Skins")
+
                     regions[2]:Hide()
                     regions[3]:Hide()
                     RecipeInset:Hide()
                     DetailsInset:Hide()
                     _G["ClassTrainerFrame"]:SetHeight(512 + tall)
-                    _G["ClassTrainerTrainButton"]:ClearAllPoints()
-                    _G["ClassTrainerTrainButton"]:SetPoint("BOTTOMRIGHT", _G["ClassTrainerFrame"], "BOTTOMRIGHT", -42, 78)
-                    LeaPlusCB["TrainAllButton"]:ClearAllPoints()
-                    LeaPlusCB["TrainAllButton"]:SetPoint("BOTTOMLEFT", _G["ClassTrainerFrame"], "BOTTOMLEFT", 344, 78)
-                    E:GetModule("Skins"):HandleButton(_G.LeaPlusGlobalTrainAllButton)
+
+                    if S and S.HandleButton then
+                        S:HandleButton(_G.LeaPlusGlobalTrainAllButton)
+                    end
+
+                    -- Apply ElvUI collapse/expand button skinning to all buttons created by Leatrix Plus
+                    if S and S.HandleCollapseExpandButton then
+                        for i = 1, MAX_TRAINER_SKILLS do
+                            local skillButton = _G["ClassTrainerSkill" .. i]
+                            local highlight = _G["ClassTrainerSkill" .. i .. "Highlight"]
+                            if skillButton and not skillButton.__leaSkinned then
+                                skillButton.__leaSkinned = true
+                                S:HandleCollapseExpandButton(skillButton, "+", nil, nil, 1)
+                                if highlight then
+                                    highlight:SetTexture("")
+                                    highlight.SetTexture = E.noop
+                                end
+                            end
+                        end
+                    end
+
+                    -- Unified bottom button layout for ElvUI (Y = 78)
+                    local function LayoutBottomButtons()
+                        -- Unlock Close if ElvUI or another addon hid it
+                        _G["ClassTrainerCancelButton"].Show = nil
+                        _G["ClassTrainerCancelButton"]:Show()
+
+                        -- Close button: bottom-right
+                        _G["ClassTrainerCancelButton"]:ClearAllPoints()
+                        _G["ClassTrainerCancelButton"]:SetPoint("BOTTOMRIGHT", _G["ClassTrainerFrame"], "BOTTOMRIGHT", -42, 78)
+
+                        -- Train button: left of Close
+                        _G["ClassTrainerTrainButton"]:ClearAllPoints()
+                        _G["ClassTrainerTrainButton"]:SetPoint("RIGHT", _G["ClassTrainerCancelButton"], "LEFT", -3, 0)
+
+                        -- Train All button: bottom-left
+                        LeaPlusCB["TrainAllButton"]:ClearAllPoints()
+                        LeaPlusCB["TrainAllButton"]:SetPoint("BOTTOMLEFT", _G["ClassTrainerFrame"], "BOTTOMLEFT", 344, 78)
+
+                        -- Suppress duplicate Train All button from ElvUI_Enhanced
+                        if _G.ElvUI_TrainAllButton then
+                            _G.ElvUI_TrainAllButton:Hide()
+                            _G.ElvUI_TrainAllButton.Show = function() end
+                        end
+                    end
+
+                    LayoutBottomButtons()
+                    ClassTrainerFrame:HookScript("OnShow", LayoutBottomButtons)
+                    hooksecurefunc("ClassTrainer_SetToClassTrainer", LayoutBottomButtons)
+                    hooksecurefunc("ClassTrainer_SetToTradeSkillTrainer", LayoutBottomButtons)
                 end
             end
 
