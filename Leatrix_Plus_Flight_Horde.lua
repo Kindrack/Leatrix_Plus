@@ -153,7 +153,7 @@ function Leatrix_Plus:LoadFlightDataHorde()
 			["0.56:0.47:0.55:0.58"] = 162,																-- Crossroads, Splintertree Post
 			["0.56:0.47:0.55:0.58:0.50:0.65"] = 241,											-- Crossroads, Splintertree Post, Emerald Sanctuary
 			["0.56:0.47:0.57:0.36"] = 162,																-- Crossroads, Brackenwall Village
-			["0.56:0.47:0.61:0.20"] = 303,																-- Crossroads, Gadgetzan
+			["0.56:0.47:0.61:0.20"] = 287,																-- Crossroads, Gadgetzan
 			["0.56:0.47:0.61:0.45"] = 52,																	-- Crossroads, Ratchet
 			["0.56:0.47:0.61:0.45:0.61:0.20:0.50:0.24"] = 395,						-- Crossroads, Ratchet, Gadgetzan, Marshal's Refuge
 			["0.56:0.47:0.62:0.10"] = 346,																-- Crossroads, Anje'Watha
@@ -814,7 +814,7 @@ function Leatrix_Plus:LoadFlightDataHorde()
 			["0.45:0.63:0.42:0.63:0.50:0.34"] = 507,																-- The Bulwark, Undercity, Kargath
 			["0.45:0.63:0.42:0.63:0.50:0.34:0.54:0.21"] = 731,											-- The Bulwark, Undercity, Kargath, Stonard
 			["0.45:0.63:0.42:0.63:0.59:0.55"] = 302,																-- The Bulwark, Undercity, Revantusk Village
-			["0.45:0.63:0.42:0.63:0.61:0.65"] = 283,																-- The Bulwark, Undercity, Light's Hope Chapel
+			["0.45:0.63:0.42:0.63:0.61:0.65"] = 323,																-- The Bulwark, Undercity, Light's Hope Chapel
 			["0.45:0.63:0.46:0.57"] = 74,																						-- The Bulwark, Tarren Mill
 			["0.45:0.63:0.46:0.57:0.37:0.59"] = 177,																-- The Bulwark, Tarren Mill, The Sepulcher
 			["0.45:0.63:0.46:0.57:0.55:0.54"] = 191,																-- The Bulwark, Tarren Mill, Hammerfall
